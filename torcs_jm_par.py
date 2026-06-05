@@ -6,7 +6,7 @@ import os
 import time
 import csv
 
-print("!!! THIS FILE IS RUNNING MEOW !!!")
+print("!!! THIS FILE IS RUNNING MEOW1 !!!")
 
 PI= 3.14159265359
 
@@ -527,28 +527,46 @@ def calculate_throttle(S, R):
     front = S['track'][9]
     angle = abs(S['angle'])
     speedZ = S.get('speedZ', 0)
+    trackPos = S.get('trackPos', 0)
 
-    # Если машина реально сильно боком — газ не даём
-    if angle > 0.75 and S['speedX'] > 45:
+    # Если почти вне трассы — газ не даём
+    if abs(trackPos) > 1.05:
         return 0.0
 
-    # На спуске в сильном повороте газ не даём, но только в опасной зоне
-    if speedZ < -3.0 and front < 80 and abs(R['steer']) > 0.35 and S['speedX'] > 55:
+    # Если машина почти у края на высокой скорости — газ убираем
+    if abs(trackPos) > 0.95 and S['speedX'] > 70:
         return 0.0
 
-    # Если впереди совсем мало места — не газуем
-    if front < 25 and S['speedX'] > 55:
+    # Если машину реально сильно боком — газ не даём
+    if angle > 0.85 and S['speedX'] > 45:
+        return 0.0
+
+    # Если совсем мало места впереди — не газуем
+    if front < 22 and S['speedX'] > 55:
+        return 0.0
+
+    # На спуске газ режем только в реально опасной близкой зоне
+    if speedZ < -3.0 and front < 35 and abs(R['steer']) > 0.35 and S['speedX'] > 50:
         return 0.0
 
     target_speed = calculate_target_speed(S)
 
-    # Меньше режем скорость из-за руля
-    target_speed -= abs(R['steer']) * 5
+    # Exit boost: открываем газ раньше после шиканы / медленной зоны
+    if front > 55 and S['speedX'] < 95 and angle < 0.45 and abs(trackPos) < 0.70:
+        return 1.0
+
+    # Ещё один общий выход из поворота:
+    # если скорость ниже цели, машина ровная и есть место — газуем
+    if S['speedX'] < target_speed - 3 and front > 35 and angle < 0.55 and abs(trackPos) < 0.85:
+        return 1.0
+
+    # Обычный режим газа
+    target_speed -= abs(R['steer']) * 4
 
     if S['speedX'] < target_speed:
         accel = 1.0
     else:
-        accel = 0.25
+        accel = 0.40
 
     if S['speedX'] < 20:
         accel = 0.9
@@ -561,7 +579,7 @@ def smooth_brake(target_brake):
     global PREV_BRAKE
 
     press_speed = 0.10
-    release_speed = 0.50
+    release_speed = 0.75
 
     if target_brake > PREV_BRAKE:
         brake = min(target_brake, PREV_BRAKE + press_speed)
@@ -576,6 +594,7 @@ def apply_brakes(S):
     angle = abs(S['angle'])
     track = S['track']
     speedZ = S.get('speedZ', 0)
+    trackPos = S.get('trackPos', 0)
 
     front = track[9]
     left_front = max(track[3:9])
@@ -587,30 +606,57 @@ def apply_brakes(S):
     target_speed = calculate_target_speed(S)
     overspeed = speed - target_speed
 
-    # Потеряли трассу
+    # 1. Авария / потеряли трассу
     if front < 0 and speed > 35:
         return 0.70
 
-    # Шикана на спуске — только близко
-    if speedZ < -3.0 and front < 55 and speed > 65:
-        return 0.70
+    # 2. Если почти вне трассы — мягко тормозим
+    if abs(trackPos) > 1.05 and speed > 45:
+        return 0.35
 
-    # Настоящая шикана
-    if front < 50 and side_diff > 35 and corner_sharpness > 18 and speed > 70:
+    # 3. Если почти у края — совсем мягкий тормоз
+    if abs(trackPos) > 0.95 and speed > 75:
+        return 0.20
+
+    # 4. Самая опасная часть шиканы на спуске
+    if speedZ < -3.0 and front < 30 and speed > 65:
         return 0.65
 
-    # Очень мало места впереди
+    # 5. На выходе из шиканы не тормозим,
+    # если машина ровная и скорость ещё низкая
+    if front > 60 and speed < 95 and angle < 0.35 and abs(trackPos) < 0.65:
+        return 0.0
+
+    # 6. На выходе из поворота не дёргаем тормоз,
+    # если машина едет медленнее или около целевой скорости
+    if front > 40 and speed < target_speed + 5 and angle < 0.5:
+        return 0.0
+
+    # 7. Если скорость ниже целевой — не тормозим
+    if speed < target_speed - 5:
+        return 0.0
+
+    # 8. Спуск + близкий поворот
+    if speedZ < -3.0 and front < 55 and speed > 90:
+        return 0.45
+
+    # 9. Настоящая резкая шикана
+    if front < 50 and side_diff > 35 and corner_sharpness > 18 and speed > 75:
+        return 0.60
+
+    # 10. Очень мало места впереди
     if front < 30 and speed > 70:
-        return 0.65
+        return 0.60
 
-    # Обычные повороты: тормоз только при большом превышении
-    if overspeed > 40:
-        return 0.50
-    elif overspeed > 25:
+    # 11. Обычное превышение скорости
+    if overspeed > 45:
+        return 0.45
+    elif overspeed > 30:
         return 0.25
-    elif overspeed > 15:
+    elif overspeed > 18:
         return 0.10
 
+    # 12. Если машину реально несёт боком
     if angle > 1.0:
         return 0.20
 
@@ -627,18 +673,32 @@ def calculate_target_speed(S):
     side_diff = abs(left_front - right_front)
     corner_sharpness = max(left_front, right_front) - front
 
+    # Потеряли трассу
     if front < 0:
         return 55
 
-    # Шикана на сильном спуске — только если уже реально близко
-    if speedZ < -3.0 and front < 55:
+    # Самая опасная часть шиканы на спуске
+    if speedZ < -3.0 and front < 30:
         return 65
 
-    # Настоящая шикана — делаем условие строже
+    # Спуск + близкий поворот
+    if speedZ < -3.0 and front < 55:
+        return 85
+
+    # Выход из шиканы / медленной зоны:
+    # если машина уже ровная и впереди есть место — разрешаем быстрее разгоняться
+    if front > 60 and abs(S['angle']) < 0.35 and abs(S['trackPos']) < 0.65 and S['speedX'] < 95:
+        return 100
+
+    # Спуск, но ещё можно ехать
+    if speedZ < -3.0 and front < 90:
+        return 105
+
+    # Настоящая резкая шикана
     if front < 50 and side_diff > 35 and corner_sharpness > 18:
         return 70
 
-    # Обычные повороты быстрее
+    # Обычные повороты
     if front < 55:
         return 85
 
@@ -770,6 +830,22 @@ def drive_modular(c):
     target_brake = apply_brakes(S)
     R['brake'] = smooth_brake(target_brake)
 
+    trackPos = S.get('trackPos', 0)
+
+    # Safety: машина реально уходит к краю / в гравий
+    if abs(trackPos) > 0.95 and S['speedX'] > 55:
+        R['accel'] = 0.0
+        R['brake'] = max(R['brake'], 0.15)
+
+        # Рулим обратно к центру трассы
+        if trackPos > 0:
+            R['steer'] = min(R['steer'], -0.18)
+        else:
+            R['steer'] = max(R['steer'], 0.18)
+
+        R['gear'] = shift_gears(S)
+        return
+
     # Anti-slide: если машину начало разворачивать, стабилизируем
     if abs(S['angle']) > 0.75 and S['speedX'] > 25:
         R['accel'] = 0.0
@@ -790,7 +866,8 @@ def drive_modular(c):
         R['accel'] = 0.8
         R['gear'] = 1
     else:
-        if R['brake'] > 0.10:
+                # Если тормоз сильный — газ не даём
+        if R['brake'] > 0.20:
             R['accel'] = 0.0
         else:
             R['accel'] = calculate_throttle(S, R)
@@ -809,6 +886,9 @@ def drive_modular(c):
     "slip =", round(wheel_slip, 1),
     "rpm =", round(S.get('rpm', 0), 0),
 
+    current_target_speed = calculate_target_speed(S)
+    log_telemetry(S, R, current_target_speed, target_brake)
+
     print(
         "target_speed =", round(current_target_speed, 1),
         "target_brake =", round(target_brake, 2),
@@ -819,7 +899,8 @@ def drive_modular(c):
         "front =", round(front, 1),
         "steer =", round(R['steer'], 2),
         "angle =", round(S['angle'], 2),
-        "speedZ =", round(S['speedZ'], 2)
+        "speedZ =", round(S['speedZ'], 2),
+        "trackPos =", round(S['trackPos'], 2),
     )
 
     return
