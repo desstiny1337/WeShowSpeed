@@ -545,19 +545,23 @@ def calculate_throttle(S, R):
     if front < 22 and S['speedX'] > 55:
         return 0.0
 
-    # На спуске газ режем только в реально опасной близкой зоне
-    if speedZ < -3.0 and front < 35 and abs(R['steer']) > 0.35 and S['speedX'] > 50:
+    # Внутри самой опасной части шиканы на спуске газ не даём
+    if speedZ < -3.0 and front < 45 and S['speedX'] > 55:
         return 0.0
 
     target_speed = calculate_target_speed(S)
 
-    # Exit boost: открываем газ раньше после шиканы / медленной зоны
-    if front > 55 and S['speedX'] < 95 and angle < 0.45 and abs(trackPos) < 0.70:
+    # Мягкий выход после первой части шиканы:
+    # разрешаем газ раньше, но только если машина ровная и не у края
+    if front > 60 and S['speedX'] < 95 and angle < 0.35 and abs(trackPos) < 0.60:
         return 1.0
 
-    # Ещё один общий выход из поворота:
-    # если скорость ниже цели, машина ровная и есть место — газуем
-    if S['speedX'] < target_speed - 3 and front > 35 and angle < 0.55 and abs(trackPos) < 0.85:
+    # Полный exit boost после всей шиканы
+    if front > 75 and S['speedX'] < 110 and angle < 0.40 and abs(trackPos) < 0.70 and speedZ > -4.5:
+        return 1.0
+
+    # Общий выход из обычного поворота
+    if S['speedX'] < target_speed - 3 and front > 45 and angle < 0.55 and abs(trackPos) < 0.85:
         return 1.0
 
     # Обычный режим газа
@@ -614,33 +618,32 @@ def apply_brakes(S):
     if abs(trackPos) > 1.05 and speed > 45:
         return 0.35
 
-    # 3. Если почти у края — совсем мягкий тормоз
+    # 3. Если почти у края — мягкий тормоз
     if abs(trackPos) > 0.95 and speed > 75:
-        return 0.20
+        return 0.25
 
     # 4. Самая опасная часть шиканы на спуске
-    if speedZ < -3.0 and front < 30 and speed > 65:
+    if speedZ < -3.0 and front < 25 and speed > 65:
         return 0.65
 
-    # 5. На выходе из шиканы не тормозим,
-    # если машина ровная и скорость ещё низкая
-    if front > 60 and speed < 95 and angle < 0.35 and abs(trackPos) < 0.65:
+    # 5. Внутри шиканы на спуске не даём машине улететь после первого поворота
+    if speedZ < -3.0 and front < 45 and speed > 78:
+        return 0.45
+
+    # 6. Средняя часть шиканы: лёгкое ограничение, если скорость уже высокая
+    if speedZ < -3.0 and front < 70 and speed > 90:
+        return 0.30
+
+    # 7. На выходе из шиканы не тормозим,
+    # но только если это реально выход, а не середина шиканы на спуске
+    if front > 75 and speed < 105 and angle < 0.35 and abs(trackPos) < 0.70 and speedZ > -3.5:
         return 0.0
 
-    # 6. На выходе из поворота не дёргаем тормоз,
-    # если машина едет медленнее или около целевой скорости
-    if front > 40 and speed < target_speed + 5 and angle < 0.5:
-        return 0.0
-
-    # 7. Если скорость ниже целевой — не тормозим
+    # 8. Если скорость ниже целевой — не тормозим
     if speed < target_speed - 5:
         return 0.0
 
-    # 8. Спуск + близкий поворот
-    if speedZ < -3.0 and front < 55 and speed > 90:
-        return 0.45
-
-    # 9. Настоящая резкая шикана
+    # 9. Настоящая резкая шикана по форме трассы
     if front < 50 and side_diff > 35 and corner_sharpness > 18 and speed > 75:
         return 0.60
 
@@ -673,28 +676,35 @@ def calculate_target_speed(S):
     side_diff = abs(left_front - right_front)
     corner_sharpness = max(left_front, right_front) - front
 
+    angle = abs(S.get('angle', 0))
+    trackPos = abs(S.get('trackPos', 0))
+    speed = S.get('speedX', 0)
+
     # Потеряли трассу
     if front < 0:
         return 55
 
     # Самая опасная часть шиканы на спуске
-    if speedZ < -3.0 and front < 30:
+    if speedZ < -3.0 and front < 25:
         return 65
 
-    # Спуск + близкий поворот
-    if speedZ < -3.0 and front < 55:
-        return 85
+    # Первая / внутренняя часть шиканы
+    if speedZ < -3.0 and front < 45:
+        return 80
 
-    # Выход из шиканы / медленной зоны:
-    # если машина уже ровная и впереди есть место — разрешаем быстрее разгоняться
-    if front > 60 and abs(S['angle']) < 0.35 and abs(S['trackPos']) < 0.65 and S['speedX'] < 95:
-        return 100
+    # Средняя часть шиканы
+    if speedZ < -3.0 and front < 70:
+        return 90
 
-    # Спуск, но ещё можно ехать
-    if speedZ < -3.0 and front < 90:
+    # Спуск, но уже есть место
+    if speedZ < -3.0 and front < 100:
         return 105
 
-    # Настоящая резкая шикана
+    # Выход из шиканы / медленной зоны
+    if front > 60 and angle < 0.40 and trackPos < 0.70 and speed < 110:
+        return 115
+
+    # Настоящая резкая шикана по форме трассы
     if front < 50 and side_diff > 35 and corner_sharpness > 18:
         return 70
 
