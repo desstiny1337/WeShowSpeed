@@ -36,6 +36,8 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+
+# 4. Проблемная зона 
 zone = df[(df["step"] >= 4300) & (df["step"] <= 5000)]
 
 plt.figure(figsize=(14, 6))
@@ -50,6 +52,8 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+
+# 5. Положение на трассе
 plt.figure(figsize=(14, 6))
 plt.plot(df["step"], df["trackPos"], label="trackPos")
 plt.axhline(1.0, linestyle="--", label="right edge")
@@ -57,6 +61,20 @@ plt.axhline(-1.0, linestyle="--", label="left edge")
 plt.xlabel("Step")
 plt.ylabel("trackPos")
 plt.title("Track position")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# 6. Анализ Апексов
+
+plt.figure(figsize=(14, 6))
+plt.plot(df["step"], df["trackPos"], label="trackPos")
+plt.plot(df["step"], df["apex_target"], label="apex_target")
+plt.axhline(1.0, linestyle="--", label="right edge")
+plt.axhline(-1.0, linestyle="--", label="left edge")
+plt.xlabel("Step")
+plt.ylabel("Position")
+plt.title("Track position vs apex target")
 plt.legend()
 plt.grid(True)
 plt.show()

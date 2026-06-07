@@ -6,7 +6,7 @@ import os
 import time
 import csv
 
-print("!!! THIS FILE IS RUNNING MEOW1 !!!")
+print("!!! THIS FILE IS RUNNING MEOW11 !!!")
 
 PI= 3.14159265359
 
@@ -497,105 +497,247 @@ import math
 # ================= USER CONFIGURABLE PARAMETERS =================
 TARGET_SPEED = 190  # Target speed in km/h. Increasing this makes the car go faster but may reduce stability.
 STEER_GAIN = 22    # Steering sensitivity. Higher values make the car turn more aggressively.
-CENTERING_GAIN = 0.28  # How strongly the car corrects its position toward the center of the track.
-BRAKE_THRESHOLD = 0.30  # Angle threshold for braking. Lower values brake earlier.
-GEAR_SPEEDS = [0, 40, 80, 120, 165, 215]  # Speed thresholds for gear shifting.
+CENTERING_GAIN = 0.24  # How strongly the car corrects its position toward the center of the track.
+BRAKE_THRESHOLD = 0.38  # Angle threshold for braking. Lower values brake earlier.
+GEAR_SPEEDS = [0, 45, 95, 135, 175, 220]  # Speed thresholds for gear shifting.
 ENABLE_TRACTION_CONTROL = False  # Toggle traction control system.
 
 # ================= HELPER FUNCTIONS =================
 PREV_STEER = 0.0
 
 def calculate_steering(S):
-    global PREV_STEER
+    import math
 
-    raw_steer = (S['angle'] * STEER_GAIN / math.pi) - (S['trackPos'] * CENTERING_GAIN)
-    raw_steer = max(-0.45, min(0.45, raw_steer))
+    angle = S.get('angle', 0)
+    trackPos = S.get('trackPos', 0)
+    speed = S.get('speedX', 0)
 
-    max_change = 0.07
+    # Базовое руление: угол машины относительно направления трассы
+    angle_correction = angle * STEER_GAIN / math.pi
 
-    if raw_steer > PREV_STEER + max_change:
-        steer = PREV_STEER + max_change
-    elif raw_steer < PREV_STEER - max_change:
-        steer = PREV_STEER - max_change
-    else:
-        steer = raw_steer
+    # Центрирование машины относительно середины трассы
+    position_correction = trackPos * CENTERING_GAIN
 
-    PREV_STEER = steer
+    steer = angle_correction - position_correction
+
+    # На высокой скорости руль делаем мягче
+    if speed > 150:
+        steer *= 0.65
+    elif speed > 120:
+        steer *= 0.78
+    elif speed > 90:
+        steer *= 0.90
+
+    # Если машина близко к краю, мягко возвращаем к центру
+    if abs(trackPos) > 0.70:
+        steer -= trackPos * 0.25
+
+    # Ограничение руля
+    steer = max(-0.75, min(0.75, steer))
+
     return steer
 
+def calculate_apex_target_pos(S):
+    return 0.0
+
+PREV_FRONT = None
+FRONT_STABLE_COUNT = 0
+PREV_ACCEL = 0.0
+
 def calculate_throttle(S, R):
+    global FRONT_TREND, FRONT_STABLE_COUNT, CURRENT_FRONT_DELTA
+
     front = S['track'][9]
-    angle = abs(S['angle'])
+    angle = abs(S.get('angle', 0))
     speedZ = S.get('speedZ', 0)
     trackPos = S.get('trackPos', 0)
+    speed = S['speedX']
 
-    # Если почти вне трассы — газ не даём
+    target_speed = calculate_target_speed(S)
+    speed_error = target_speed - speed
+
+    # 1. Почти вне трассы — газ закрыт
     if abs(trackPos) > 1.05:
         return 0.0
 
-    # Если машина почти у края на высокой скорости — газ убираем
-    if abs(trackPos) > 0.95 and S['speedX'] > 70:
+    # 2. Почти у края на высокой скорости
+    if abs(trackPos) > 0.95 and speed > 75:
         return 0.0
 
-    # Если машину реально сильно боком — газ не даём
-    if angle > 0.85 and S['speedX'] > 45:
+    # 3. Машина сильно боком
+    if angle > 0.85 and speed > 45:
         return 0.0
 
-    # Если совсем мало места впереди — не газуем
-    if front < 22 and S['speedX'] > 55:
+    # 4. Совсем мало места впереди
+    if front < 20 and speed > 55:
         return 0.0
 
-    # Внутри самой опасной части шиканы на спуске газ не даём
-    if speedZ < -3.0 and front < 45 and S['speedX'] > 55:
+    # 5. Самая опасная часть шиканы — газ закрыт
+    if speedZ < -3.0 and front < 25 and speed > 55:
         return 0.0
 
-    target_speed = calculate_target_speed(S)
+    # 6. Внутри шиканы — небольшой поддерживающий газ
+    if speedZ < -3.0 and front < 42 and speed > 55:
+        if angle < 0.35 and abs(trackPos) < 0.75:
+            return 0.35
+        return 0.0
 
-    # Мягкий выход после первой части шиканы:
-    # разрешаем газ раньше, но только если машина ровная и не у края
-    if front > 60 and S['speedX'] < 95 and angle < 0.35 and abs(trackPos) < 0.60:
-        return 1.0
+    # 7. Проблемная зона:
+    # если машина едет медленно и front не ухудшается — уверенно открываем газ
+    if (
+        front > 45
+        and speed < 105
+        and angle < 0.60
+        and abs(trackPos) < 0.85
+        and FRONT_TREND > -2.5
+    ):
+        if speed_error > 25:
+            return 1.0
+        elif speed_error > 15:
+            return 0.90
+        elif speed_error > 8:
+            return 0.75
+        elif speed_error > 3:
+            return 0.55
+        else:
+            return 0.30
 
-    # Полный exit boost после всей шиканы
-    if front > 75 and S['speedX'] < 110 and angle < 0.40 and abs(trackPos) < 0.70 and speedZ > -4.5:
-        return 1.0
+    # 8. Если front растёт — выход из поворота
+    if (
+        FRONT_TREND > 1.5
+        and front > 45
+        and speed < 125
+        and angle < 0.55
+        and abs(trackPos) < 0.85
+    ):
+        if speed_error > 25:
+            return 1.0
+        elif speed_error > 12:
+            return 0.90
+        else:
+            return 0.70
 
-    # Общий выход из обычного поворота
-    if S['speedX'] < target_speed - 3 and front > 45 and angle < 0.55 and abs(trackPos) < 0.85:
-        return 1.0
+    # 9. Обычный выход из поворота
+    if (
+        speed < target_speed - 3
+        and front > 45
+        and angle < 0.60
+        and abs(trackPos) < 0.90
+    ):
+        if speed_error > 25:
+            return 1.0
+        elif speed_error > 12:
+            return 0.90
+        elif speed_error > 5:
+            return 0.70
+        else:
+            return 0.45
 
-    # Обычный режим газа
-    target_speed -= abs(R['steer']) * 4
+    # 10. Обычный режим газа
+    target_speed -= abs(R['steer']) * 2.5
+    speed_error = target_speed - speed
 
-    if S['speedX'] < target_speed:
+    if speed_error > 30:
         accel = 1.0
+    elif speed_error > 18:
+        accel = 0.90
+    elif speed_error > 8:
+        accel = 0.70
+    elif speed_error > 2:
+        accel = 0.50
+    elif speed_error > -5:
+        accel = 0.25
     else:
-        accel = 0.40
+        accel = 0.0
 
-    if S['speedX'] < 20:
-        accel = 0.9
+    if speed < 20:
+        accel = max(accel, 0.85)
 
-    return max(0.0, min(1.0, accel))
+    return clamp(accel, 0.0, 1.0)
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+FRONT_TREND = 0.0
+CURRENT_FRONT_DELTA = 0.0
+def update_front_trend(S):
+    global PREV_FRONT, FRONT_TREND, FRONT_STABLE_COUNT, CURRENT_FRONT_DELTA
+
+    front = S['track'][9]
+
+    if PREV_FRONT is None:
+        raw_delta = 0.0
+    else:
+        raw_delta = front - PREV_FRONT
+
+    PREV_FRONT = front
+    CURRENT_FRONT_DELTA = raw_delta
+
+    # Сглаженный тренд front
+    FRONT_TREND = FRONT_TREND * 0.80 + raw_delta * 0.20
+
+    # Стабильная зона: front почти не меняется
+    if abs(raw_delta) < 4.0:
+        FRONT_STABLE_COUNT += 1
+    else:
+        FRONT_STABLE_COUNT = 0
+
+def smooth_accel(target_accel):
+    global PREV_ACCEL
+
+    target_accel = clamp(target_accel, 0.0, 1.0)
+
+    # Газ открываем плавно, но достаточно быстро
+    if target_accel > PREV_ACCEL:
+        if target_accel > 0.90:
+            press_speed = 0.30
+        elif target_accel > 0.65:
+            press_speed = 0.22
+        else:
+            press_speed = 0.16
+
+        accel = min(target_accel, PREV_ACCEL + press_speed)
+
+    # Газ закрываем быстрее, чем открываем
+    else:
+        release_speed = 0.35
+        accel = max(target_accel, PREV_ACCEL - release_speed)
+
+    PREV_ACCEL = accel
+    return accel
 
 PREV_BRAKE = 0.0
 
 def smooth_brake(target_brake):
     global PREV_BRAKE
 
-    press_speed = 0.10
-    release_speed = 0.75
+    target_brake = clamp(target_brake, 0.0, 1.0)
 
+    # Нажатие тормоза плавное, чтобы не было lockup
     if target_brake > PREV_BRAKE:
+        if target_brake > 0.55:
+            press_speed = 0.10
+        elif target_brake > 0.30:
+            press_speed = 0.08
+        else:
+            press_speed = 0.06
+
         brake = min(target_brake, PREV_BRAKE + press_speed)
+
+    # Отпускание тормоза быстрое
     else:
+        release_speed = 0.45
         brake = max(target_brake, PREV_BRAKE - release_speed)
 
     PREV_BRAKE = brake
     return brake
 
 def apply_brakes(S):
+    global FRONT_TREND, FRONT_STABLE_COUNT, CURRENT_FRONT_DELTA
+
     speed = S['speedX']
-    angle = abs(S['angle'])
+    angle = abs(S.get('angle', 0))
     track = S['track']
     speedZ = S.get('speedZ', 0)
     trackPos = S.get('trackPos', 0)
@@ -610,62 +752,71 @@ def apply_brakes(S):
     target_speed = calculate_target_speed(S)
     overspeed = speed - target_speed
 
-    # 1. Авария / потеряли трассу
+    # 1. Потеряли трассу / авария
     if front < 0 and speed > 35:
-        return 0.70
+        return 0.65
 
-    # 2. Если почти вне трассы — мягко тормозим
+    # 2. Почти вне трассы
     if abs(trackPos) > 1.05 and speed > 45:
         return 0.35
 
-    # 3. Если почти у края — мягкий тормоз
+    # 3. Близко к краю
     if abs(trackPos) > 0.95 and speed > 75:
-        return 0.25
+        return 0.22
 
-    # 4. Самая опасная часть шиканы на спуске
+    # 4. Самая опасная часть шиканы
     if speedZ < -3.0 and front < 25 and speed > 65:
-        return 0.65
+        brake = 0.18 + (speed - 65) * 0.016
+        return clamp(brake, 0.18, 0.62)
 
-    # 5. Внутри шиканы на спуске не даём машине улететь после первого поворота
-    if speedZ < -3.0 and front < 45 and speed > 78:
-        return 0.45
+    # 5. Внутренняя часть шиканы
+    if speedZ < -3.0 and front < 42 and speed > 88:
+        brake = 0.10 + (speed - 88) * 0.014
+        return clamp(brake, 0.10, 0.42)
 
-    # 6. Средняя часть шиканы: лёгкое ограничение, если скорость уже высокая
-    if speedZ < -3.0 and front < 70 and speed > 90:
-        return 0.30
-
-    # 7. На выходе из шиканы не тормозим,
-    # но только если это реально выход, а не середина шиканы на спуске
-    if front > 75 and speed < 105 and angle < 0.35 and abs(trackPos) < 0.70 and speedZ > -3.5:
+    # 6. Если front не падает и скорость не высокая — тормоз запрещён
+    if (
+        front > 45
+        and speed < 105
+        and angle < 0.60
+        and abs(trackPos) < 0.85
+        and FRONT_TREND > -2.5
+    ):
         return 0.0
 
-    # 8. Если скорость ниже целевой — не тормозим
-    if speed < target_speed - 5:
+    # 7. Если скорость ниже или около целевой — не тормозим
+    if overspeed <= 6:
         return 0.0
 
-    # 9. Настоящая резкая шикана по форме трассы
-    if front < 50 and side_diff > 35 and corner_sharpness > 18 and speed > 75:
-        return 0.60
+    # 8. Резкая шикана по форме трассы
+    if front < 50 and side_diff > 35 and corner_sharpness > 18 and speed > 82:
+        brake = 0.16 + (speed - 82) * 0.016
+        return clamp(brake, 0.16, 0.58)
 
-    # 10. Очень мало места впереди
-    if front < 30 and speed > 70:
-        return 0.60
+    # 9. Очень мало места впереди
+    if front < 30 and speed > 75:
+        brake = 0.18 + (speed - 75) * 0.016
+        return clamp(brake, 0.18, 0.58)
 
-    # 11. Обычное превышение скорости
+    # 10. Плавное торможение по превышению скорости
     if overspeed > 45:
-        return 0.45
+        return 0.42
     elif overspeed > 30:
         return 0.25
     elif overspeed > 18:
-        return 0.10
+        return 0.14
+    elif overspeed > 8:
+        return 0.06
 
-    # 12. Если машину реально несёт боком
+    # 11. Если машину несёт боком
     if angle > 1.0:
-        return 0.20
+        return 0.18
 
     return 0.0
 
 def calculate_target_speed(S):
+    global FRONT_TREND, FRONT_STABLE_COUNT, CURRENT_FRONT_DELTA
+
     track = S['track']
     speedZ = S.get('speedZ', 0)
 
@@ -688,39 +839,57 @@ def calculate_target_speed(S):
     if speedZ < -3.0 and front < 25:
         return 65
 
-    # Первая / внутренняя часть шиканы
-    if speedZ < -3.0 and front < 45:
+    # Внутренняя часть шиканы
+    if speedZ < -3.0 and front < 42:
         return 80
 
-    # Средняя часть шиканы
+    # Проблемная стабильная зона:
+    # раньше тут было слишком медленно, поднимаем цель
+    if (
+        front > 45
+        and speed < 100
+        and angle < 0.55
+        and trackPos < 0.80
+        and FRONT_TREND > -2.5
+    ):
+        return 105
+
+    # Если front растёт — это выход из поворота
+    if (
+        FRONT_TREND > 1.5
+        and front > 45
+        and speed < 120
+        and angle < 0.55
+        and trackPos < 0.85
+    ):
+        return 125
+
+    # Средняя часть спуска / шиканы
     if speedZ < -3.0 and front < 70:
-        return 90
+        return 95
 
     # Спуск, но уже есть место
     if speedZ < -3.0 and front < 100:
-        return 105
-
-    # Выход из шиканы / медленной зоны
-    if front > 60 and angle < 0.40 and trackPos < 0.70 and speed < 110:
         return 115
 
-    # Настоящая резкая шикана по форме трассы
+    # Резкая шикана по форме трассы
     if front < 50 and side_diff > 35 and corner_sharpness > 18:
-        return 70
+        return 75
 
     # Обычные повороты
     if front < 55:
-        return 85
+        return 90
 
     if front < 85:
-        return 115
+        return 125
 
     if front < 120:
-        return 145
+        return 155
 
     if front < 160:
-        return 165
+        return 175
 
+    # На прямых снова разрешаем максималку
     return TARGET_SPEED
 
 PREV_GEAR = 1
@@ -754,29 +923,51 @@ LOG_FILE = "telemetry_log.csv"
 LOG_INITIALIZED = False
 STEP_COUNTER = 0
 
+PREV_LOG_FRONT = None
+
 def log_telemetry(S, R, target_speed, target_brake):
-    global LOG_INITIALIZED, STEP_COUNTER
+    global LOG_INITIALIZED, STEP_COUNTER, PREV_LOG_FRONT
 
     track = S['track']
 
+    front = track[9]
+    left_front = max(track[3:9])
+    right_front = max(track[10:16])
+
+    if PREV_LOG_FRONT is None:
+        front_delta = 0.0
+    else:
+        front_delta = front - PREV_LOG_FRONT
+
+    PREV_LOG_FRONT = front
+
     row = {
         "step": STEP_COUNTER,
+
         "speedX": S.get("speedX", 0),
         "speedY": S.get("speedY", 0),
         "speedZ": S.get("speedZ", 0),
+
         "angle": S.get("angle", 0),
         "trackPos": S.get("trackPos", 0),
         "z": S.get("z", 0),
         "rpm": S.get("rpm", 0),
+
         "gear": R.get("gear", 0),
         "steer": R.get("steer", 0),
         "accel": R.get("accel", 0),
         "brake": R.get("brake", 0),
+
         "target_speed": target_speed,
         "target_brake": target_brake,
-        "front": track[9],
-        "left_front": max(track[3:9]),
-        "right_front": max(track[10:16]),
+
+        "front": front,
+        "front_delta": front_delta,
+        "left_front": left_front,
+        "right_front": right_front,
+
+        "apex_target": calculate_apex_target_pos(S),
+
         "track_0": track[0],
         "track_1": track[1],
         "track_2": track[2],
@@ -814,10 +1005,10 @@ def log_telemetry(S, R, target_speed, target_brake):
 
 
 
-
 # ================= MAIN DRIVE FUNCTION =================
 def drive_modular(c):
     S, R = c.S.d, c.R.d
+    update_front_trend(S)
 
     front = S['track'][9]
     angle = abs(S['angle'])
@@ -839,6 +1030,15 @@ def drive_modular(c):
 
     target_brake = apply_brakes(S)
     R['brake'] = smooth_brake(target_brake)
+
+    target_accel = calculate_throttle(S, R)
+
+    # Только заметный тормоз полностью закрывает газ.
+    # Маленький тормоз не должен убивать разгон.
+    if R['brake'] > 0.22:
+        target_accel = 0.0
+
+    R['accel'] = smooth_accel(target_accel)
 
     trackPos = S.get('trackPos', 0)
 
