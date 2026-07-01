@@ -5,7 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="989bde14-c6b5-4701-870c-df34a4aea1fb" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/snakeoil3_gym.py" beforeDir="false" afterPath="$PROJECT_DIR$/snakeoil3_gym.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plot_telemetry.py" beforeDir="false" afterPath="$PROJECT_DIR$/plot_telemetry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/telemetry_log.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/torcs_jm_par.py" beforeDir="false" afterPath="$PROJECT_DIR$/torcs_jm_par.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/vtorcs-RL-color/data/cars/models/sc-f1/sc-f1.rgb" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/vtorcs-RL-color/data/cars/models/sc-f1/sc-f1.xcf" beforeDir="false" afterPath="$PROJECT_DIR$/vtorcs-RL-color/data/cars/models/sc-f1/sc-f1.xcf" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -19,25 +24,25 @@
     <commands />
     <urls />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 3
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 3
+}</component>
   <component name="ProjectId" id="3EYCnewhjNWqJebM6KqFRICuKFH" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "master",
-    "junie.onboarding.icon.badge.shown": "true",
-    "to.speed.mode.migration.done": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;Gleb&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
